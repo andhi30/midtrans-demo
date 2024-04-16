@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+
+{% block js %}
+<script type="text/javascript" src="https://app.sandbox.midtrans.com/snap/snap.js"
+    data-client-key="{{ client_key }}"></script>
+{% endblock %}
+
+{% block title %} Wallet {% endblock %}
+
+{% block content %}
+
+<div class="row g-2">
+    <div class="col-md-4 d-flex align-items-stretch">
+        <div class="card w-100 h-100">
+            <div class="card-body d-flex flex-column justify-content-between" style="height: 100%">
+                <h3 class="card-title">{{ user.username }}'s Wallet</h3>
+                <div class="d-flex align-items-center" style="height: 100%">
+                    <h1 id="balance" class="card-text text-bold flex-grow-1" style="margin: 0">{{ user.coin.balance|floatformat:"g" }}<span class="text-muted small">🪙</span></h1>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type='hidden' id='snap_token' value="{{ token }}" />
+
+    <div class="col-md-8 d-flex">
+        <div class="row g-2">
+            {% for plan in pricing_plans %}
+            <div class="col-sm-6">
+                <div class="card w-100 h-100">
+                    <div class="card-body d-flex flex-column justify-content-between" style="height: 100%">
+                        <h5 class="card-title">{{ plan.name }}</h5>
+                        <p class="card-text">{{ plan.coin|floatformat:"g" }}🪙 for Rp{{ plan.price|floatformat:"2g" }}</p>
+                        <button type="button" class="btn btn-primary w-100 topup" data-amount="{{ plan.price }}" data-order-id="order-{{ plan.id }}">Top up</button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+
+    function updateBalance(balance) {
+        var balanceElement = document.getElementById('balance');
+        if (balanceElement) {
+            balanceElement.textContent = new Intl.NumberFormat('en-US').format(balance);
+            var coinsSpan = document.createElement('span');
+            coinsSpan.classList.add('text-muted', 'small');
+            coinsSpan.textContent = '🪙';
+            balanceElement.appendChild(coinsSpan);
+        }
+    }
+
+    document.querySelectorAll('.topup').forEach(button => {
+        button.addEventListener('click', async function() {
+            var amount = this.getAttribute('data-amount');
+            var order_id = this.getAttribute('data-order-id') + "-{% now 'YmdH-isu' %}";
+
+            const response = await fetch('topup/payment', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'amount=' + amount + '&order_id=' + order_id
+            });
+
+            const data = await response.json();
+            const token = data.token;
+            if (token) {
+                snap.pay(token, {
+                    onSuccess: async function(result) {
+                        console.log(result);
+                        
+                        // send result to /topup/payment/success endpoint
+                        fetch('topup/payment/success', {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRFToken': '{{ csrf_token }}',
+                                'Content-Type': 'application/x-www-form-urlencoded'
+                            },
+                            body: 'token=' + token + '&order_id=' + order_id
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            updateBalance(data.balance);
+                        });
+
+                    },
+                    onPending: function(result) {
+                        console.log('Transaction pending');
+                    },
+                    onError: function(result) {
+                        console.log('Transaction error');
+                    }
+                });
+            }
+        });
+    });
+</script>
+
+
+{% endblock %}
